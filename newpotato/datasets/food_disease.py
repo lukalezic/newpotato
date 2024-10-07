@@ -42,7 +42,7 @@ def load_fd(input_file):
         if not row_id:
             continue
 
-        is_cause, is_treat = bool(is_cause), bool(is_treat)
+        is_cause, is_treat = bool(float(is_cause)), bool(float(is_treat))
 
         yield row_id, sentence, food_entity, disease_entity, is_cause, is_treat
 
