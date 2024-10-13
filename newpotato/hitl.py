@@ -5,9 +5,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Generator, List, Optional
 
+from tuw_nlp.text.utils import tuple_if_list
+
 from newpotato.datatypes import Triplet
 from newpotato.extractors.extractor import Extractor
-from newpotato.extractors.graph_extractor import GraphBasedExtractor
 
 
 @dataclass
@@ -25,28 +26,39 @@ class HITLManager:
         extractor (Extractor): The extractor that uses classifiers to extract triplets from graphs.
     """
 
-    def __init__(self, parser_url: Optional[str] = "http://localhost:7277"):
+    def __init__(self, extractor_type):
         self.latest = None
-        self.sentences = {}
         self.text_to_triplets = defaultdict(list)
         self.oracle = None
-        self.extractor = GraphBasedExtractor()
+        self.extractor_type = extractor_type
+        self.init_extractor()
         logging.info("HITL manager initialized")
+
+    def init_extractor(self):
+        if self.extractor_type == "ud":
+            from newpotato.extractors.graph_extractor import GraphBasedExtractor
+
+            self.extractor = GraphBasedExtractor()
+        elif self.extractor_type == "graphbrain":
+            from newpotato.extractors.graphbrain_extractor import GraphbrainExtractor
+
+            self.extractor = GraphbrainExtractor()
+        else:
+            raise ValueError(f"unsupported extractor type: {self.extractor_type}")
 
     def load_extractor(self, extractor_data):
         self.extractor = Extractor.from_json(extractor_data)
 
-    def load_data(self, sentences, triplet_data, oracle=False):
-        self.sentences = sentences
+    def load_triplets(self, triplet_data, oracle=False):
         text_to_triplets = {
-            text: [
+            tuple_if_list(item["text"]): [
                 (
                     Triplet.from_json(triplet[0]),
                     triplet[1],
                 )
-                for triplet in triplets
+                for triplet in item["triplets"]
             ]
-            for text, triplets in triplet_data.items()
+            for item in triplet_data
         }
 
         if oracle:
@@ -63,9 +75,7 @@ class HITLManager:
         return HITLManager.from_json(data, oracle=oracle)
 
     @staticmethod
-    def from_json(
-        data: Dict[str, Any], parser_url="http://localhost:7277", oracle=False
-    ):
+    def from_json(data: Dict[str, Any], oracle=False):
         """
         load HITLManager from saved state
 
@@ -75,8 +85,8 @@ class HITLManager:
         Returns:
             HITLManager: a new HITLManager object with the restored state
         """
-        hitl = HITLManager(parser_url)
-        hitl.load_data(data["sentences"], data["triplets"], oracle=oracle)
+        hitl = HITLManager(extractor_type=data["extractor_type"])
+        hitl.load_triplets(data["triplets"], oracle=oracle)
         hitl.load_extractor(data["extractor_data"])
         return hitl
 
@@ -90,12 +100,17 @@ class HITLManager:
         """
 
         return {
-            "sentences": self.sentences,
-            "triplets": {
-                text: [(triplet[0].to_json(), triplet[1]) for triplet in triplets]
+            "triplets": [
+                {
+                    "text": text,
+                    "triplets": [
+                        (triplet[0].to_json(), triplet[1]) for triplet in triplets
+                    ],
+                }
                 for text, triplets in self.text_to_triplets.items()
-            },
+            ],
             "extractor_data": self.extractor.to_json(),
+            "extractor_type": self.extractor_type,
         }
 
     def save(self, fn: str):
@@ -112,23 +127,12 @@ class HITLManager:
         """
         return basic stats about the HITL state
         """
-        n_rules = 0
-        if self.extractor.classifier is not None:
-            n_rules = len(self.extractor.classifier.rules)
 
         return {
-            "n_sens": len(self.sentences),
+            "n_sens": len(self.extractor.parsed_graphs),
             "n_annotated": len(self.text_to_triplets),
-            "n_rules": n_rules,
+            "n_rules": self.extractor.get_n_rules(),
         }
-
-    def add_text(self, text: str):
-        self.sentences.update(
-            {
-                sen: self.extractor.get_tokens(sen)
-                for sen in self.extractor.get_sentences(text)
-            }
-        )
 
     def get_rules(self, *args, **kwargs):
         return self.extractor.get_rules(self.text_to_triplets, *args, **kwargs)
@@ -215,7 +219,7 @@ class HITLManager:
         """
         sens = [
             sen
-            for sen in self.sentences
+            for sen in self.extractor.parsed_graphs
             if sen != "latest" and sen not in self.text_to_triplets
         ]
         n_graphs = len(sens)

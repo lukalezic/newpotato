@@ -1,11 +1,15 @@
 from collections import defaultdict
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
 
 from newpotato.datatypes import Triplet
 
 
 def get_extractor_cls(e_type):
-    if e_type == "graphbrain":
+    if e_type == "graph":
+        from newpotato.extractors.graph_extractor import GraphBasedExtractor
+
+        return GraphBasedExtractor
+    elif e_type == "graphbrain":
         from newpotato.extractors.graphbrain_extractor import GraphbrainExtractor
 
         return GraphbrainExtractor
@@ -24,6 +28,10 @@ class Extractor:
     def __init__(self):
         self.parsed_graphs = {}
         self.doc_ids = defaultdict(set)
+        self._is_trained = False
+
+    def is_trained(self):
+        return self._is_trained
 
     def to_json(self) -> Dict[str, Any]:
         raise NotImplementedError
@@ -49,6 +57,9 @@ class Extractor:
     def _parse_text(self, text, **kwargs):
         raise NotImplementedError
 
+    def _parse_sen_tuple(self, sen_tuple, **kwargs):
+        raise NotImplementedError
+
     def parse_text(self, text, **kwargs):
         if text in self.parsed_graphs:
             yield text, self.parsed_graphs[text]
@@ -56,6 +67,18 @@ class Extractor:
             for sen, graph in self._parse_text(text):
                 self.parsed_graphs[sen] = graph
                 yield sen, graph
+
+    def _parse_pretokenized(self, sen_tuple):
+        if sen_tuple not in self.parsed_graphs:
+            sen_tuple, graph = self._parse_sen_tuple(sen_tuple)
+            self.parsed_graphs[sen_tuple] = graph
+
+        return sen_tuple, self.parsed_graphs[sen_tuple]
+
+    def parse_pretokenized(self, sens):
+        for sen in sens:
+            sen_tuple, graph = self._parse_pretokenized(tuple(sen))
+            yield sen_tuple, graph
 
     def get_doc_ids(self, sen: str):
         """Return the document ids associated with the given sentence
@@ -102,4 +125,7 @@ class Extractor:
         raise NotImplementedError
 
     def infer_triplets(self, sen: str, **kwargs) -> List[Triplet]:
+        raise NotImplementedError
+
+    def get_n_rules(self) -> int:
         raise NotImplementedError

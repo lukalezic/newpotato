@@ -255,7 +255,7 @@ class GraphbrainExtractor(Extractor):
         }
         return extractor
 
-    def to_json(self) -> Dict[str, List]:
+    def to_json(self) -> Dict[str, Any]:
         data = {
             "extractor_type": "graphbrain",
             "parsed_graphs": {
@@ -283,6 +283,9 @@ class GraphbrainExtractor(Extractor):
         for graph in graphs:
             yield graph['text'], graph
 
+    def is_trained(self):
+        return self.classifier is not None
+
     def get_annotated_graphs_from_classifier(self) -> List[str]:
         """
         Get the annotated graphs
@@ -292,6 +295,11 @@ class GraphbrainExtractor(Extractor):
         """
         assert self.classifier is not None, "classifier not initialized"
         return [str(rule[0]) for rule in self.classifier.cases]
+
+    def get_n_rules(self):
+        if self.classifier is None:
+            return 0
+        return len(self.classifier.rules)
 
     def get_rules(self, text_to_triplets=None, learn: bool = True) -> List[Rule]:
         """
@@ -417,19 +425,18 @@ class GraphbrainExtractor(Extractor):
         """
         self.get_graphs(text)
 
-    def match_rules(self, sen: str) -> List[Dict]:
+    def match_rules(self, text: str) -> List[Dict]:
         """
         match rules against sentence by passing the sentence's graph to the extractor
 
         Args:
-            sen (str): the sentence to be matched against
+            text (str): the sentence to be matched against
 
         Returns:
             List[Dict] a list of hypergraphs corresponding to the matches
         """
-        graphs = self.get_graphs(sen)
         all_matches = []
-        for graph in graphs:
+        for sen, graph in self.get_graphs(text).items():
             main_graph = graph["main_edge"]
             matches, _ = self.classify(main_graph)
             all_matches += matches
